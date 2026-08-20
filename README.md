@@ -1,4 +1,4 @@
-# Towamensing Lore Ledger
+# Towamensing Burn Book
 
 Shared neighborhood context app with local fallback and optional Supabase central storage.
 

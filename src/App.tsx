@@ -446,7 +446,7 @@ function App() {
         setSelectedId(next[0]?.id ?? "");
         flash(isShared ? "Import loaded. Saving shared book." : "Import complete.");
       } catch {
-        flash("That file was not a Lore Ledger export.");
+        flash("That file was not a Burn Book export.");
       }
     };
     reader.readAsText(file);
@@ -476,7 +476,7 @@ function App() {
           </div>
           <div>
             <p>Towamensing Trails</p>
-            <h1>Lore Ledger</h1>
+            <h1>Burn Book</h1>
           </div>
         </div>
 
@@ -506,7 +506,7 @@ function App() {
 
         <div className="notice">
           <ShieldAlert size={18} />
-          <span>Use the shared link for one central book. Export backups before the lore mutates.</span>
+          <span>One face, one nickname, one story. Keep receipts before the lore mutates.</span>
         </div>
 
         <div className="stats" aria-label="Book stats">
@@ -556,8 +556,8 @@ function App() {
             >
               <Avatar person={person} />
               <span>
-                <strong>{person.name || "Unnamed entry"}</strong>
-                <small>{person.role || person.location || "Lore pending"}</small>
+                <strong>{person.aliases || person.name || "Unnamed entry"}</strong>
+                <small>{person.name || "Real name pending"}</small>
               </span>
               <em className={`heat ${person.heat}`}>{heatLabels[person.heat]}</em>
             </button>
@@ -586,8 +586,8 @@ function App() {
           <>
             <header className="topbar">
               <div>
-                <p>Selected dossier</p>
-                <h2>{selected.name || "Unnamed entry"}</h2>
+                <p>Burn page</p>
+                <h2>{selected.aliases || selected.name || "Unnamed entry"}</h2>
               </div>
               <div className="topbar-actions">
                 {isShared ? (
@@ -672,29 +672,15 @@ function App() {
 
               <section className="editor">
                 <div className="grid two">
-                  <Field label="Name">
-                    <input onChange={(event) => updateSelected({ name: event.target.value })} value={selected.name} />
-                  </Field>
-                  <Field label="Aliases">
+                  <Field label="Nickname">
                     <input
                       onChange={(event) => updateSelected({ aliases: event.target.value })}
-                      placeholder="Nicknames, chat shorthand"
+                      placeholder="Chat nickname, shorthand, or what everyone calls them"
                       value={selected.aliases}
                     />
                   </Field>
-                  <Field label="Role / how we know them">
-                    <input
-                      onChange={(event) => updateSelected({ role: event.target.value })}
-                      placeholder="Neighbor, board person, pool regular"
-                      value={selected.role}
-                    />
-                  </Field>
-                  <Field label="Typical habitat">
-                    <input
-                      onChange={(event) => updateSelected({ location: event.target.value })}
-                      placeholder="Where their face usually appears"
-                      value={selected.location}
-                    />
+                  <Field label="Real name">
+                    <input onChange={(event) => updateSelected({ name: event.target.value })} value={selected.name} />
                   </Field>
                   <Field label="Heat level">
                     <select onChange={(event) => updateSelected({ heat: event.target.value as Heat })} value={selected.heat}>
@@ -704,27 +690,19 @@ function App() {
                       <option value="redeemable">Redeemable</option>
                     </select>
                   </Field>
-                  <Field label="Last seen">
+                  <Field label="Where they show up">
                     <input
-                      onChange={(event) => updateSelected({ lastSeen: event.target.value })}
-                      placeholder="Pool, clubhouse, chat screenshot..."
-                      value={selected.lastSeen}
+                      onChange={(event) => updateSelected({ location: event.target.value })}
+                      placeholder="Pool, clubhouse, meeting, group chat"
+                      value={selected.location}
                     />
                   </Field>
                 </div>
 
-                <Field label="Face card / recognition notes">
-                  <textarea
-                    onChange={(event) => updateSelected({ summary: event.target.value })}
-                    placeholder="What they look like, their vibe, and how to recognize them later."
-                    value={selected.summary}
-                  />
-                </Field>
-
-                <Field label="Why does the group have context?">
+                <Field label="What did they do?">
                   <textarea
                     onChange={(event) => updateSelected({ offense: event.target.value })}
-                    placeholder="The short lore. Bonus points for clarity; fewer points for exaggeration."
+                    placeholder="The short version. Keep it clear enough that future-you knows why the group made that face."
                     value={selected.offense}
                   />
                 </Field>
@@ -734,21 +712,6 @@ function App() {
                     onChange={(event) => updateSelected({ receipts: event.target.value })}
                     placeholder="Names, dates, screenshots to find later, or who to ask before repeating."
                     value={selected.receipts}
-                  />
-                </Field>
-
-                <Field label="Tags">
-                  <input
-                    onChange={(event) =>
-                      updateSelected({
-                        tags: event.target.value
-                          .split(",")
-                          .map((tag) => tag.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                    placeholder="pool, parking, clubhouse"
-                    value={selected.tags.join(", ")}
                   />
                 </Field>
 
