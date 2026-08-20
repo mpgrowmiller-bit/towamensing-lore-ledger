@@ -1,10 +1,15 @@
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import {
   AlertTriangle,
   Camera,
+  Cloud,
+  CloudOff,
   Download,
   FileUp,
   Flame,
+  KeyRound,
   Plus,
+  RefreshCw,
   Save,
   Search,
   Share2,
@@ -18,6 +23,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 type Heat = "watch" | "avoid" | "friction" | "redeemable";
+type SyncState = "local" | "locked" | "loading" | "shared" | "saving" | "error";
 
 type Person = {
   id: string;
@@ -36,7 +42,21 @@ type Person = {
   updatedAt: string;
 };
 
+type SharedConfig = {
+  url: string;
+  key: string;
+  book: string;
+};
+
 const storageKey = "towamensing-lore-ledger-v1";
+const configKey = "towamensing-lore-ledger-shared-config";
+const passcodeKey = "towamensing-lore-ledger-passcode";
+
+const envConfig: SharedConfig = {
+  url: import.meta.env.VITE_SUPABASE_URL ?? "",
+  key: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+  book: import.meta.env.VITE_LORE_BOOK_ID ?? "",
+};
 
 const heatLabels: Record<Heat, string> = {
   watch: "Watch List",
@@ -97,17 +117,62 @@ const seedPeople: Person[] = [
   },
 ];
 
-function encodeSnapshot(people: Person[]) {
-  const payload = JSON.stringify({ people, exportedAt: new Date().toISOString() });
-  return btoa(unescape(encodeURIComponent(payload)));
+function encodeJson(value: unknown) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(value))));
 }
 
-function decodeSnapshot(encoded: string): Person[] | null {
+function decodeJson<T>(encoded: string): T | null {
   try {
-    const payload = JSON.parse(decodeURIComponent(escape(atob(encoded))));
-    return Array.isArray(payload.people) ? payload.people : null;
+    return JSON.parse(decodeURIComponent(escape(atob(encoded)))) as T;
   } catch {
     return null;
+  }
+}
+
+function getHashParams() {
+  return new URLSearchParams(location.hash.replace(/^#/, ""));
+}
+
+function getInitialConfig(): SharedConfig {
+  const params = getHashParams();
+  const packed = params.get("s");
+  if (packed) {
+    const decoded = decodeJson<SharedConfig>(packed);
+    if (decoded?.url && decoded.key && decoded.book) {
+      localStorage.setItem(configKey, JSON.stringify(decoded));
+      return decoded;
+    }
+  }
+
+  if (envConfig.url && envConfig.key && envConfig.book) return envConfig;
+
+  const stored = localStorage.getItem(configKey);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored) as SharedConfig;
+      if (parsed.url && parsed.key && parsed.book) return parsed;
+    } catch {
+      localStorage.removeItem(configKey);
+    }
+  }
+
+  return { url: "", key: "", book: "" };
+}
+
+function getInitialPeople() {
+  const fromHash = getHashParams().get("data");
+  if (fromHash) {
+    const decoded = decodeJson<{ people: Person[] }>(fromHash);
+    if (decoded?.people) return normalizePeople(decoded.people) ?? seedPeople;
+  }
+
+  const stored = localStorage.getItem(storageKey);
+  if (!stored) return seedPeople;
+
+  try {
+    return normalizePeople(JSON.parse(stored)) ?? seedPeople;
+  } catch {
+    return seedPeople;
   }
 }
 
@@ -119,36 +184,55 @@ function normalizePeople(value: unknown): Person[] | null {
       ...emptyPerson(),
       ...item,
       id: item.id || crypto.randomUUID(),
+      heat: item.heat === "enemy" ? "friction" : item.heat ?? "watch",
       tags: Array.isArray(item.tags) ? item.tags.filter((tag) => typeof tag === "string") : [],
-      updatedAt: new Date().toISOString(),
+      updatedAt: item.updatedAt || new Date().toISOString(),
     }));
 }
 
-function App() {
-  const [people, setPeople] = useState<Person[]>(() => {
-    const fromHash = new URLSearchParams(location.hash.replace(/^#/, "")).get("data");
-    if (fromHash) {
-      const decoded = decodeSnapshot(fromHash);
-      if (decoded) return decoded;
-    }
+function makeClient(config: SharedConfig): SupabaseClient | null {
+  if (!config.url || !config.key || !config.book) return null;
+  return createClient(config.url, config.key, { auth: { persistSession: false } });
+}
 
-    const stored = localStorage.getItem(storageKey);
-    if (!stored) return seedPeople;
-
-    try {
-      const parsed = JSON.parse(stored);
-      return normalizePeople(parsed) ?? seedPeople;
-    } catch {
-      return seedPeople;
-    }
+async function loadShared(client: SupabaseClient, config: SharedConfig, passcode: string) {
+  const { data, error } = await client.rpc("lore_load", {
+    p_book_id: config.book,
+    p_passcode: passcode,
   });
+  if (error) throw error;
+  return normalizePeople(data) ?? [];
+}
+
+async function saveShared(client: SupabaseClient, config: SharedConfig, passcode: string, people: Person[]) {
+  const { data, error } = await client.rpc("lore_save", {
+    p_book_id: config.book,
+    p_passcode: passcode,
+    p_entries: people,
+  });
+  if (error) throw error;
+  return normalizePeople(data) ?? people;
+}
+
+function App() {
+  const [people, setPeople] = useState<Person[]>(getInitialPeople);
   const [selectedId, setSelectedId] = useState(people[0]?.id ?? "");
   const [query, setQuery] = useState("");
   const [heat, setHeat] = useState<Heat | "all">("all");
   const [toast, setToast] = useState("");
+  const [config, setConfig] = useState<SharedConfig>(getInitialConfig);
+  const [passcode, setPasscode] = useState(() => getHashParams().get("code") ?? localStorage.getItem(passcodeKey) ?? "");
+  const [syncState, setSyncState] = useState<SyncState>(() => (makeClient(getInitialConfig()) ? "locked" : "local"));
+  const [syncMessage, setSyncMessage] = useState("Local-only mode.");
+  const [lastSaved, setLastSaved] = useState("");
+  const [showSetup, setShowSetup] = useState(false);
+  const [setupDraft, setSetupDraft] = useState<SharedConfig>(config);
+  const saveTimer = useRef<number | null>(null);
   const importRef = useRef<HTMLInputElement | null>(null);
 
+  const client = useMemo(() => makeClient(config), [config]);
   const selected = people.find((person) => person.id === selectedId) ?? people[0];
+  const isShared = Boolean(client && passcode && (syncState === "shared" || syncState === "saving"));
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(people));
@@ -157,6 +241,29 @@ function App() {
   useEffect(() => {
     if (!selected && people[0]) setSelectedId(people[0].id);
   }, [people, selected]);
+
+  useEffect(() => {
+    if (!client || !passcode || syncState === "loading" || syncState === "locked") return;
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      setSyncState("saving");
+      saveShared(client, config, passcode, people)
+        .then(() => {
+          const time = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+          setLastSaved(time);
+          setSyncMessage(`Shared book saved at ${time}.`);
+          setSyncState("shared");
+        })
+        .catch((error) => {
+          setSyncState("error");
+          setSyncMessage(error.message || "Could not save shared book.");
+        });
+    }, 800);
+
+    return () => {
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    };
+  }, [client, config, passcode, people, syncState]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -192,6 +299,64 @@ function App() {
   function flash(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(""), 2200);
+  }
+
+  async function unlockShared(event?: FormEvent) {
+    event?.preventDefault();
+    if (!client || !passcode) {
+      flash("Shared book needs config and passcode.");
+      return;
+    }
+
+    setSyncState("loading");
+    setSyncMessage("Opening shared book...");
+    try {
+      const remote = await loadShared(client, config, passcode);
+      setPeople(remote.length ? remote : people);
+      setSelectedId(remote[0]?.id ?? people[0]?.id ?? "");
+      localStorage.setItem(passcodeKey, passcode);
+      setSyncState("shared");
+      setSyncMessage("Shared book connected.");
+      flash("Shared book connected.");
+    } catch (error) {
+      setSyncState("error");
+      setSyncMessage(error instanceof Error ? error.message : "Could not open shared book.");
+    }
+  }
+
+  async function refreshShared() {
+    if (!client || !passcode) return;
+    setSyncState("loading");
+    try {
+      const remote = await loadShared(client, config, passcode);
+      setPeople(remote);
+      setSelectedId(remote[0]?.id ?? "");
+      setSyncState("shared");
+      setSyncMessage("Shared book refreshed.");
+    } catch (error) {
+      setSyncState("error");
+      setSyncMessage(error instanceof Error ? error.message : "Could not refresh shared book.");
+    }
+  }
+
+  async function forceSave() {
+    if (!client || !passcode) {
+      flash("Saved locally.");
+      return;
+    }
+
+    setSyncState("saving");
+    try {
+      await saveShared(client, config, passcode, people);
+      const time = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      setLastSaved(time);
+      setSyncState("shared");
+      setSyncMessage(`Shared book saved at ${time}.`);
+      flash("Shared book saved.");
+    } catch (error) {
+      setSyncState("error");
+      setSyncMessage(error instanceof Error ? error.message : "Could not save shared book.");
+    }
   }
 
   function updateSelected(updates: Partial<Person>) {
@@ -240,11 +405,32 @@ function App() {
     flash("Export downloaded.");
   }
 
-  function createShareLink() {
+  function createShareLink(includePasscode = false) {
     const url = new URL(location.href);
-    url.hash = `data=${encodeSnapshot(people)}`;
+    url.hash = `s=${encodeJson(config)}${includePasscode && passcode ? `&code=${encodeURIComponent(passcode)}` : ""}`;
+    navigator.clipboard.writeText(url.toString());
+    flash(includePasscode ? "One-tap link copied." : "Shared book link copied.");
+  }
+
+  function createSnapshotLink() {
+    const url = new URL(location.href);
+    url.hash = `data=${encodeJson({ people, exportedAt: new Date().toISOString() })}`;
     navigator.clipboard.writeText(url.toString());
     flash("Snapshot link copied.");
+  }
+
+  function saveSetup(event: FormEvent) {
+    event.preventDefault();
+    if (!setupDraft.url || !setupDraft.key || !setupDraft.book) {
+      flash("Fill in all shared setup fields.");
+      return;
+    }
+
+    localStorage.setItem(configKey, JSON.stringify(setupDraft));
+    setConfig(setupDraft);
+    setSyncState("locked");
+    setSyncMessage("Shared setup saved. Enter passcode to open.");
+    setShowSetup(false);
   }
 
   function importData(event: ChangeEvent<HTMLInputElement>) {
@@ -258,9 +444,9 @@ function App() {
         if (!next) throw new Error("Invalid file");
         setPeople(next);
         setSelectedId(next[0]?.id ?? "");
-        flash("Import complete.");
+        flash(isShared ? "Import loaded. Saving shared book." : "Import complete.");
       } catch {
-        flash("That file was not a burn book export.");
+        flash("That file was not a Lore Ledger export.");
       }
     };
     reader.readAsText(file);
@@ -278,12 +464,12 @@ function App() {
 
   function submitProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    flash("Saved locally.");
+    forceSave();
   }
 
   return (
     <main className="app">
-      <section className="sidebar" aria-label="Burn book roster">
+      <section className="sidebar" aria-label="Lore ledger roster">
         <div className="brand">
           <div className="mark">
             <Flame size={25} />
@@ -294,9 +480,33 @@ function App() {
           </div>
         </div>
 
+        <div className={`sync-card ${syncState}`}>
+          {isShared ? <Cloud size={19} /> : <CloudOff size={19} />}
+          <div>
+            <strong>{isShared ? "Shared book" : client ? "Locked shared book" : "Local-only book"}</strong>
+            <span>{syncMessage}</span>
+          </div>
+        </div>
+
+        {client && !isShared ? (
+          <form className="unlock" onSubmit={unlockShared}>
+            <label>
+              <KeyRound size={17} />
+              <input
+                autoComplete="current-password"
+                onChange={(event) => setPasscode(event.target.value)}
+                placeholder="Group passcode"
+                type="password"
+                value={passcode}
+              />
+            </label>
+            <button type="submit">Open</button>
+          </form>
+        ) : null}
+
         <div className="notice">
           <ShieldAlert size={18} />
-          <span>Keep notes factual, useful, and backed up before the lore mutates.</span>
+          <span>Use the shared link for one central book. Export backups before the lore mutates.</span>
         </div>
 
         <div className="stats" aria-label="Book stats">
@@ -317,9 +527,9 @@ function App() {
         <label className="search">
           <Search size={17} />
           <input
-            value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search names, lore, tags"
+            value={query}
           />
         </label>
 
@@ -380,15 +590,63 @@ function App() {
                 <h2>{selected.name || "Unnamed entry"}</h2>
               </div>
               <div className="topbar-actions">
-                <button onClick={createShareLink} type="button" title="Copy snapshot link">
+                {isShared ? (
+                  <button onClick={refreshShared} type="button" title="Refresh shared book">
+                    <RefreshCw size={18} />
+                    <span>Refresh</span>
+                  </button>
+                ) : null}
+                <button onClick={() => (client ? createShareLink(false) : createSnapshotLink())} type="button" title="Copy link">
                   <Share2 size={18} />
                   <span>Share</span>
                 </button>
+                {client && passcode ? (
+                  <button onClick={() => createShareLink(true)} type="button" title="Copy one-tap link">
+                    <KeyRound size={18} />
+                    <span>One-tap</span>
+                  </button>
+                ) : null}
                 <button className="danger" onClick={deleteSelected} type="button" title="Delete entry">
                   <Trash2 size={18} />
                 </button>
               </div>
             </header>
+
+            {showSetup ? (
+              <form className="setup-panel" onSubmit={saveSetup}>
+                <Field label="Supabase URL">
+                  <input
+                    onChange={(event) => setSetupDraft({ ...setupDraft, url: event.target.value.trim() })}
+                    placeholder="https://example.supabase.co"
+                    value={setupDraft.url}
+                  />
+                </Field>
+                <Field label="Supabase publishable / anon key">
+                  <input
+                    onChange={(event) => setSetupDraft({ ...setupDraft, key: event.target.value.trim() })}
+                    placeholder="eyJ..."
+                    value={setupDraft.key}
+                  />
+                </Field>
+                <Field label="Book ID">
+                  <input
+                    onChange={(event) => setSetupDraft({ ...setupDraft, book: event.target.value.trim() })}
+                    placeholder="UUID from setup SQL"
+                    value={setupDraft.book}
+                  />
+                </Field>
+                <div className="command-row">
+                  <button className="primary" type="submit">
+                    <Save size={18} />
+                    <span>Save setup</span>
+                  </button>
+                  <button className="ghost" onClick={() => setShowSetup(false)} type="button">
+                    <X size={17} />
+                    <span>Close</span>
+                  </button>
+                </div>
+              </form>
+            ) : null}
 
             <form className="profile" onSubmit={submitProfile}>
               <section className="face-panel">
@@ -406,36 +664,40 @@ function App() {
                     <span>Clear photo</span>
                   </button>
                 ) : null}
+                <button className="ghost" onClick={() => setShowSetup(true)} type="button">
+                  <Cloud size={17} />
+                  <span>Shared setup</span>
+                </button>
               </section>
 
               <section className="editor">
                 <div className="grid two">
                   <Field label="Name">
-                    <input value={selected.name} onChange={(event) => updateSelected({ name: event.target.value })} />
+                    <input onChange={(event) => updateSelected({ name: event.target.value })} value={selected.name} />
                   </Field>
                   <Field label="Aliases">
                     <input
-                      value={selected.aliases}
                       onChange={(event) => updateSelected({ aliases: event.target.value })}
                       placeholder="Nicknames, chat shorthand"
+                      value={selected.aliases}
                     />
                   </Field>
                   <Field label="Role / how we know them">
                     <input
-                      value={selected.role}
                       onChange={(event) => updateSelected({ role: event.target.value })}
                       placeholder="Neighbor, board person, pool regular"
+                      value={selected.role}
                     />
                   </Field>
                   <Field label="Typical habitat">
                     <input
-                      value={selected.location}
                       onChange={(event) => updateSelected({ location: event.target.value })}
                       placeholder="Where their face usually appears"
+                      value={selected.location}
                     />
                   </Field>
                   <Field label="Heat level">
-                    <select value={selected.heat} onChange={(event) => updateSelected({ heat: event.target.value as Heat })}>
+                    <select onChange={(event) => updateSelected({ heat: event.target.value as Heat })} value={selected.heat}>
                       <option value="watch">Watch List</option>
                       <option value="avoid">Avoid</option>
                       <option value="friction">High Friction</option>
@@ -444,40 +706,39 @@ function App() {
                   </Field>
                   <Field label="Last seen">
                     <input
-                      value={selected.lastSeen}
                       onChange={(event) => updateSelected({ lastSeen: event.target.value })}
                       placeholder="Pool, clubhouse, chat screenshot..."
+                      value={selected.lastSeen}
                     />
                   </Field>
                 </div>
 
                 <Field label="Face card / recognition notes">
                   <textarea
-                    value={selected.summary}
                     onChange={(event) => updateSelected({ summary: event.target.value })}
                     placeholder="What they look like, their vibe, and how to recognize them later."
+                    value={selected.summary}
                   />
                 </Field>
 
                 <Field label="Why does the group have context?">
                   <textarea
-                    value={selected.offense}
                     onChange={(event) => updateSelected({ offense: event.target.value })}
                     placeholder="The short lore. Bonus points for clarity; fewer points for exaggeration."
+                    value={selected.offense}
                   />
                 </Field>
 
                 <Field label="Receipts / who knows the story">
                   <textarea
-                    value={selected.receipts}
                     onChange={(event) => updateSelected({ receipts: event.target.value })}
                     placeholder="Names, dates, screenshots to find later, or who to ask before repeating."
+                    value={selected.receipts}
                   />
                 </Field>
 
                 <Field label="Tags">
                   <input
-                    value={selected.tags.join(", ")}
                     onChange={(event) =>
                       updateSelected({
                         tags: event.target.value
@@ -487,17 +748,18 @@ function App() {
                       })
                     }
                     placeholder="pool, parking, clubhouse"
+                    value={selected.tags.join(", ")}
                   />
                 </Field>
 
                 <div className="command-row">
                   <button className="primary" type="submit">
                     <Save size={18} />
-                    <span>Save</span>
+                    <span>{isShared ? "Save shared" : "Save"}</span>
                   </button>
                   <p>
                     <AlertTriangle size={16} />
-                    Stored in this browser. Use Export or Share to move the book.
+                    {isShared ? `Central book. ${lastSaved ? `Last saved ${lastSaved}.` : "Autosave on."}` : "Local fallback. Connect shared setup for one central book."}
                   </p>
                 </div>
               </section>

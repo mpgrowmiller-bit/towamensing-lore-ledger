@@ -103,6 +103,84 @@ button {
   flex: 0 0 auto;
 }
 
+.sync-card {
+  align-items: flex-start;
+  background: #2a2024;
+  border: 1px solid #4b343a;
+  border-radius: 8px;
+  color: #f5d7cc;
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.75rem;
+}
+
+.sync-card.shared,
+.sync-card.saving {
+  background: #203027;
+  border-color: #3e654d;
+  color: #d9f4dc;
+}
+
+.sync-card.error {
+  background: #3b2020;
+  border-color: #8b3b32;
+}
+
+.sync-card svg {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+}
+
+.sync-card strong,
+.sync-card span {
+  display: block;
+}
+
+.sync-card strong {
+  font-size: 0.88rem;
+}
+
+.sync-card span {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  margin-top: 0.15rem;
+}
+
+.unlock {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.unlock label {
+  align-items: center;
+  background: #fff9f1;
+  border: 1px solid #392c31;
+  border-radius: 8px;
+  color: #594850;
+  display: flex;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.unlock input {
+  background: transparent;
+  border: 0;
+  color: #241f22;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
+}
+
+.unlock button {
+  background: #ffcc5c;
+  border-radius: 8px;
+  color: #241f22;
+  font-weight: 900;
+  min-height: 42px;
+  padding: 0.65rem 0.85rem;
+}
+
 .stats {
   display: grid;
   gap: 0.55rem;
@@ -342,12 +420,20 @@ button {
 }
 
 .face-panel,
-.editor {
+.editor,
+.setup-panel {
   background: rgba(255, 255, 255, 0.64);
   border: 1px solid #ded3ca;
   border-radius: 8px;
   box-shadow: 0 18px 45px rgba(45, 35, 40, 0.08);
   padding: 1rem;
+}
+
+.setup-panel {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0 auto 1rem;
+  max-width: 1100px;
 }
 
 .face-panel {

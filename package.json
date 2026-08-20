@@ -9,6 +9,7 @@
     "preview": "vinext preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
     "@vitejs/plugin-react": "^5.1.4",
     "lucide-react": "^0.544.0",
     "react": "^19.2.6",
