@@ -12,14 +12,14 @@ const cssMatches = [...html.matchAll(/<link[^>]+href="([^"]+\.css)"[^>]*>/g)];
 for (const match of cssMatches) {
   const assetPath = path.join(dist, match[1].replace(/^\//, ""));
   const css = await readFile(assetPath, "utf8");
-  html = html.replace(match[0], `<style>${css}</style>`);
+  html = html.replace(match[0], () => `<style>${css}</style>`);
 }
 
 const scriptMatches = [...html.matchAll(/<script[^>]+src="([^"]+\.js)"[^>]*><\/script>/g)];
 for (const match of scriptMatches) {
   const assetPath = path.join(dist, match[1].replace(/^\//, ""));
   const js = await readFile(assetPath, "utf8");
-  html = html.replace(match[0], `<script type="module">${js}</script>`);
+  html = html.replace(match[0], () => `<script type="module">${js}</script>`);
 }
 
 await mkdir(path.join(dist, "server"), { recursive: true });
