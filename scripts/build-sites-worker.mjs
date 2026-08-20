@@ -24,6 +24,7 @@ for (const match of scriptMatches) {
 
 await mkdir(path.join(dist, "server"), { recursive: true });
 await mkdir(path.join(dist, ".openai"), { recursive: true });
+await writeFile(htmlPath, html);
 
 const worker = `const html = ${JSON.stringify(html)};
 
