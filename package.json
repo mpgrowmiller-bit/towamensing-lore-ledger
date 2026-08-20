@@ -1,0 +1,24 @@
+{
+  "name": "towamensing-lore-ledger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vinext dev --host 127.0.0.1",
+    "build": "vinext build && node scripts/build-sites-worker.mjs",
+    "preview": "vinext preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.4",
+    "lucide-react": "^0.544.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-server-dom-webpack": "^19.2.6",
+    "vinext": "^1.0.0-beta.7",
+    "vite": "^8.0.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1",
+    "typescript": "^5.9.3"
+  }
+}
